@@ -1,33 +1,110 @@
-import { useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Sidebar } from '@/components/layout/Sidebar';
-import { RECENT_PROJECTS } from '@/constants/projects';
 import { STORY_TEMPLATES, TEMPLATE_CATEGORIES } from '@/constants/templates';
 import { ExploreTemplatesSection } from '@/features/dashboard/ExploreTemplatesSection';
 import { HeroSection } from '@/features/dashboard/HeroSection';
 import { RecentProjectsSection } from '@/features/dashboard/RecentProjectsSection';
-import type { NavItemId, StoryTemplate } from '@/types/studio';
+
+const StoryCreatorPage = lazy(() =>
+  import('@/features/story-creator/StoryCreatorPage').then((m) => ({
+    default: m.StoryCreatorPage,
+  })),
+);
+import type {
+  AppView,
+  NavItemId,
+  StoredProject,
+  StoryTemplate,
+} from '@/types/studio';
+import {
+  createNewProjectId,
+  deleteProject,
+  duplicateProject,
+  listProjects,
+  loadProject,
+} from '@/utils/projectStorage';
+
+const ACTIVE_PROJECT_KEY = 'frame:active-project-id';
 
 export function App() {
+  const [currentView, setCurrentView] = useState<AppView>('dashboard');
   const [activeNav, setActiveNav] = useState<NavItemId>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [showEmptyDemo, setShowEmptyDemo] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
 
-  const triggerNotice = (message: string) => {
-    setNotice(message);
-  };
+  const [projects, setProjects] = useState<StoredProject[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string>('');
+  const [editingProject, setEditingProject] = useState<StoredProject | null>(
+    null,
+  );
+  const [editingTemplate, setEditingTemplate] = useState<StoryTemplate | null>(
+    null,
+  );
+
+  const refreshProjects = useCallback(async () => {
+    const saved = await listProjects();
+    setProjects(saved);
+  }, []);
+
+  // Restore project if user reloads while inside editor, and load recent projects
+  useEffect(() => {
+    void (async () => {
+      await refreshProjects();
+      const lastId = sessionStorage.getItem(ACTIVE_PROJECT_KEY);
+      if (lastId) {
+        const restored = await loadProject(lastId);
+        if (restored) {
+          setActiveProjectId(restored.id);
+          setEditingProject(restored);
+          setEditingTemplate(null);
+          setCurrentView('editor');
+        } else {
+          sessionStorage.removeItem(ACTIVE_PROJECT_KEY);
+        }
+      }
+    })();
+  }, [refreshProjects]);
 
   const handleCreateStory = () => {
-    triggerNotice(
-      'Editor Story (1080 × 1920 px) akan tersedia pada tahap pengembangan berikutnya.',
-    );
+    const newId = createNewProjectId();
+    setActiveProjectId(newId);
+    setEditingProject(null);
+    setEditingTemplate(null);
+    sessionStorage.setItem(ACTIVE_PROJECT_KEY, newId);
+    setCurrentView('editor');
   };
 
   const handleSelectTemplate = (template: StoryTemplate) => {
-    triggerNotice(
-      `Template "${template.title}" (${template.category}) dipilih. Editor Story akan segera hadir.`,
-    );
+    const newId = createNewProjectId();
+    setActiveProjectId(newId);
+    setEditingProject(null);
+    setEditingTemplate(template);
+    sessionStorage.setItem(ACTIVE_PROJECT_KEY, newId);
+    setCurrentView('editor');
+  };
+
+  const handleOpenProject = (project: StoredProject) => {
+    setActiveProjectId(project.id);
+    setEditingProject(project);
+    setEditingTemplate(null);
+    sessionStorage.setItem(ACTIVE_PROJECT_KEY, project.id);
+    setCurrentView('editor');
+  };
+
+  const handleDuplicateProject = async (id: string) => {
+    await duplicateProject(id);
+    await refreshProjects();
+  };
+
+  const handleDeleteProject = async (id: string) => {
+    await deleteProject(id);
+    await refreshProjects();
+  };
+
+  const handleBackToDashboard = () => {
+    sessionStorage.removeItem(ACTIVE_PROJECT_KEY);
+    setCurrentView('dashboard');
+    void refreshProjects();
   };
 
   const handleExploreTemplates = () => {
@@ -36,6 +113,26 @@ export function App() {
       .getElementById('explore-templates')
       ?.scrollIntoView({ behavior: 'smooth' });
   };
+
+  if (currentView === 'editor' && activeProjectId) {
+    return (
+      <Suspense
+        fallback={
+          <div className="flex h-screen items-center justify-center bg-[#09090b] text-xs text-neutral-400">
+            Memuat Story Studio...
+          </div>
+        }
+      >
+        <StoryCreatorPage
+          key={activeProjectId}
+          projectId={activeProjectId}
+          initialProject={editingProject}
+          initialTemplate={editingTemplate}
+          onBackToDashboard={handleBackToDashboard}
+        />
+      </Suspense>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-[#09090b] text-neutral-100 antialiased">
@@ -53,19 +150,6 @@ export function App() {
         />
 
         <main className="mx-auto w-full max-w-7xl flex-1 space-y-10 px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-          {notice && (
-            <div className="flex items-center justify-between gap-4 rounded-2xl border border-white/15 bg-white/[0.05] px-4 py-3 text-xs text-neutral-200 sm:text-sm">
-              <span>{notice}</span>
-              <button
-                type="button"
-                onClick={() => setNotice(null)}
-                className="shrink-0 text-xs font-medium text-neutral-400 hover:text-white"
-              >
-                Tutup
-              </button>
-            </div>
-          )}
-
           {activeNav === 'dashboard' && (
             <>
               <HeroSection
@@ -73,10 +157,11 @@ export function App() {
                 onExploreTemplates={handleExploreTemplates}
               />
               <RecentProjectsSection
-                projects={RECENT_PROJECTS}
-                showEmptyDemo={showEmptyDemo}
-                onToggleEmptyDemo={() => setShowEmptyDemo((prev) => !prev)}
+                projects={projects}
                 onCreateStory={handleCreateStory}
+                onOpenProject={handleOpenProject}
+                onDuplicateProject={(id) => void handleDuplicateProject(id)}
+                onDeleteProject={(id) => void handleDeleteProject(id)}
               />
               <ExploreTemplatesSection
                 templates={STORY_TEMPLATES}
@@ -88,10 +173,11 @@ export function App() {
 
           {activeNav === 'projects' && (
             <RecentProjectsSection
-              projects={RECENT_PROJECTS}
-              showEmptyDemo={showEmptyDemo}
-              onToggleEmptyDemo={() => setShowEmptyDemo((prev) => !prev)}
+              projects={projects}
               onCreateStory={handleCreateStory}
+              onOpenProject={handleOpenProject}
+              onDuplicateProject={(id) => void handleDuplicateProject(id)}
+              onDeleteProject={(id) => void handleDeleteProject(id)}
             />
           )}
 
@@ -108,7 +194,8 @@ export function App() {
               <h2 className="text-lg font-semibold text-white">Settings</h2>
               <p className="mt-1 text-sm text-neutral-400">
                 Pengaturan studio FRAME. Format kanvas default terkunci pada
-                Instagram Story 1080 × 1920 px (9:16).
+                Instagram Story 1080 × 1920 px (9:16). Proyek disimpan secara
+                lokal menggunakan IndexedDB.
               </p>
             </section>
           )}

@@ -99,6 +99,49 @@ export function TemplatePreviewArt({ template }: TemplatePreviewArtProps) {
         </div>
       )}
 
+      {category === 'Lifestyle' && (
+        <div className="relative my-auto space-y-2.5 text-center">
+          <div className="mx-auto aspect-[4/5] w-4/5 rounded-2xl border border-purple-300/20 bg-white/[0.06]" />
+          <div className="mx-auto h-2 w-16 rounded-full bg-purple-300/50" />
+        </div>
+      )}
+
+      {category === 'Cinematic' && (
+        <div className="relative my-auto space-y-2">
+          <div className="h-3 w-full bg-black/80" />
+          <div className="aspect-[16/9] w-full rounded-sm border border-white/15 bg-white/[0.08]" />
+          <div className="mx-auto h-1.5 w-24 rounded-full bg-white/35" />
+          <div className="h-3 w-full bg-black/80" />
+        </div>
+      )}
+
+      {category === 'Typography Focus' && (
+        <div className="relative my-auto space-y-1.5 px-1">
+          <div
+            className="h-4 w-4/5 rounded-xs"
+            style={{ backgroundColor: accentColor }}
+          />
+          <div
+            className="h-4 w-3/5 rounded-xs"
+            style={{ backgroundColor: accentColor }}
+          />
+          <div
+            className="h-4 w-full rounded-xs"
+            style={{ backgroundColor: accentColor }}
+          />
+          <div className="pt-2">
+            <div className="h-1 w-14 rounded-full bg-white/40" />
+          </div>
+        </div>
+      )}
+
+      {category === 'Collage' && (
+        <div className="relative my-auto grid grid-cols-2 gap-2">
+          <div className="aspect-[3/4] -rotate-2 rounded-lg border border-pink-400/35 bg-white/[0.07]" />
+          <div className="aspect-[3/4] rotate-3 translate-y-2 rounded-lg border border-pink-400/35 bg-white/[0.05]" />
+        </div>
+      )}
+
       <div className="relative flex items-center justify-between pt-2">
         <div
           className="h-1 w-8 rounded-full opacity-70"
