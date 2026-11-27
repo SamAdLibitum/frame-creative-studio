@@ -11,6 +11,7 @@ import {
   Trash2,
   Type,
   Unlock,
+  WandSparkles,
 } from 'lucide-react';
 import { useState } from 'react';
 import type { CanvasElement } from '@/types/studio';
@@ -39,6 +40,8 @@ function typeIcon(el: CanvasElement) {
       return Minus;
     case 'decorative':
       return Sparkles;
+    case 'procedural':
+      return WandSparkles;
   }
 }
 

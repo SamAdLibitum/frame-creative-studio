@@ -5,19 +5,21 @@ import { Layer, Line, Rect, Stage, Transformer } from 'react-konva';
 import { CanvasDecorative } from '@/features/story-creator/components/CanvasDecorative';
 import { CanvasImage } from '@/features/story-creator/components/CanvasImage';
 import { CanvasLine } from '@/features/story-creator/components/CanvasLine';
+import { CanvasProcedural } from '@/features/story-creator/components/CanvasProcedural';
 import { CanvasShape } from '@/features/story-creator/components/CanvasShape';
 import { CanvasText } from '@/features/story-creator/components/CanvasText';
-import {
-  CANVAS_HEIGHT,
-  CANVAS_WIDTH,
-  type CanvasElement,
-  type CanvasTextElement,
-  type UploadedPhoto,
+import type {
+  CanvasElement,
+  CanvasTextElement,
+  UploadedPhoto,
 } from '@/types/studio';
 
 interface StoryCanvasProps {
   zoom: number;
+  canvasWidth: number;
+  canvasHeight: number;
   showSafeArea: boolean;
+  isComparingOriginal?: boolean;
   hideOverlays?: boolean;
   backgroundColor: string;
   elements: CanvasElement[];
@@ -29,12 +31,14 @@ interface StoryCanvasProps {
   stageRef: React.RefObject<Konva.Stage | null>;
 }
 
-const BASE_PREVIEW_SCALE = 0.29;
 const SNAP_THRESHOLD = 14;
 
 export function StoryCanvas({
   zoom,
+  canvasWidth,
+  canvasHeight,
   showSafeArea,
+  isComparingOriginal = false,
   hideOverlays = false,
   backgroundColor,
   elements,
@@ -53,9 +57,10 @@ export function StoryCanvas({
     h: false,
   });
 
-  const displayScale = BASE_PREVIEW_SCALE * (zoom / 100);
-  const stageWidth = Math.round(CANVAS_WIDTH * displayScale);
-  const stageHeight = Math.round(CANVAS_HEIGHT * displayScale);
+  const baseScale = Math.min(520 / Math.max(1, canvasWidth), 560 / Math.max(1, canvasHeight));
+  const displayScale = baseScale * (zoom / 100);
+  const stageWidth = Math.round(canvasWidth * displayScale);
+  const stageHeight = Math.round(canvasHeight * displayScale);
 
   const registerNode = useCallback((id: string, node: Konva.Node | null) => {
     nodeMapRef.current[id] = node;
@@ -87,8 +92,8 @@ export function StoryCanvas({
       el.id === editingTextId && el.type === 'text',
   );
 
-  const centerH = CANVAS_WIDTH / 2;
-  const centerV = CANVAS_HEIGHT / 2;
+  const centerH = canvasWidth / 2;
+  const centerV = canvasHeight / 2;
 
   return (
     <main className="relative flex flex-1 items-center justify-center overflow-auto bg-[#070709] p-4 sm:p-8">
@@ -146,14 +151,17 @@ export function StoryCanvas({
                 name="bg-rect"
                 x={0}
                 y={0}
-                width={CANVAS_WIDTH}
-                height={CANVAS_HEIGHT}
+                width={canvasWidth}
+                height={canvasHeight}
                 fill={backgroundColor}
               />
             )}
 
             {elements.map((element) => {
               if (!element.visible) return null;
+              if (isComparingOriginal && element.type === 'procedural') {
+                return null;
+              }
 
               switch (element.type) {
                 case 'photo': {
@@ -166,6 +174,7 @@ export function StoryCanvas({
                       element={element}
                       objectUrl={photo?.objectUrl}
                       isSelected={element.id === selectedElementId}
+                      bypassFilters={isComparingOriginal}
                       onSelect={() => onSelectElement(element.id)}
                       onDblClick={() => {
                         if (!element.locked && element.photoId && onOpenCrop) {
@@ -227,6 +236,17 @@ export function StoryCanvas({
                       registerNode={registerNode}
                     />
                   );
+                case 'procedural':
+                  return (
+                    <CanvasProcedural
+                      key={element.id}
+                      element={element}
+                      isSelected={element.id === selectedElementId}
+                      onSelect={() => onSelectElement(element.id)}
+                      onChange={(u) => onUpdateElement(element.id, u)}
+                      registerNode={registerNode}
+                    />
+                  );
               }
             })}
 
@@ -256,7 +276,7 @@ export function StoryCanvas({
               <>
                 <Line
                   name="editor-overlay"
-                  points={[0, CANVAS_HEIGHT * 0.14, CANVAS_WIDTH, CANVAS_HEIGHT * 0.14]}
+                  points={[0, canvasHeight * 0.14, canvasWidth, canvasHeight * 0.14]}
                   stroke="#38bdf8"
                   strokeWidth={2}
                   dash={[12, 8]}
@@ -265,7 +285,7 @@ export function StoryCanvas({
                 />
                 <Line
                   name="editor-overlay"
-                  points={[0, CANVAS_HEIGHT * 0.86, CANVAS_WIDTH, CANVAS_HEIGHT * 0.86]}
+                  points={[0, canvasHeight * 0.86, canvasWidth, canvasHeight * 0.86]}
                   stroke="#38bdf8"
                   strokeWidth={2}
                   dash={[12, 8]}
@@ -278,7 +298,7 @@ export function StoryCanvas({
             {!hideOverlays && snapGuide.v && (
               <Line
                 name="editor-overlay"
-                points={[centerH, 0, centerH, CANVAS_HEIGHT]}
+                points={[centerH, 0, centerH, canvasHeight]}
                 stroke="#f472b6"
                 strokeWidth={2}
                 dash={[8, 6]}
@@ -290,7 +310,7 @@ export function StoryCanvas({
             {!hideOverlays && snapGuide.h && (
               <Line
                 name="editor-overlay"
-                points={[0, centerV, CANVAS_WIDTH, centerV]}
+                points={[0, centerV, canvasWidth, centerV]}
                 stroke="#f472b6"
                 strokeWidth={2}
                 dash={[8, 6]}
@@ -348,7 +368,9 @@ export function StoryCanvas({
             </p>
             <div className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-white/8 bg-white/[0.03] px-3 py-1 text-[10px] text-neutral-400">
               <Layers className="h-3 w-3" aria-hidden="true" />
-              <span>1080 × 1920 px</span>
+              <span>
+                {canvasWidth} × {canvasHeight} px
+              </span>
             </div>
           </div>
         )}

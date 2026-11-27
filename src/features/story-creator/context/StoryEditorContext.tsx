@@ -10,6 +10,27 @@ import {
   type ReactNode,
 } from 'react';
 import { loadAllFonts } from '@/constants/fonts';
+import { getWorkspaceDefinition } from '@/constants/workspaces';
+import {
+  adaptElementsToCanvasSize,
+  getCanvasPreset,
+  sanitizeCanvasDimensions,
+} from '@/engines/canvas/formatEngine';
+import {
+  applyGlobalThemeToSlides,
+  type CarouselTemplateId,
+  createCarouselSlide,
+  createStarterCarouselDeck,
+  DEFAULT_CAROUSEL_THEME,
+  deleteCarouselSlide,
+  duplicateCarouselSlide,
+  reorderCarouselSlides,
+} from '@/engines/carousel/carouselEngine';
+import {
+  extractHarmoniousPaletteFromImage,
+  PROCEDURAL_GENERATORS,
+  sanitizeProceduralConfig,
+} from '@/engines/procedural';
 import { useEditorHistory } from '@/features/story-creator/hooks/useEditorHistory';
 import { useKeyboardShortcuts } from '@/features/story-creator/hooks/useKeyboardShortcuts';
 import {
@@ -26,20 +47,27 @@ import {
   type CanvasElement,
   type CanvasLineElement,
   type CanvasPhotoElement,
+  type CanvasPresetId,
+  type CanvasProceduralElement,
   type CanvasShapeElement,
   type CanvasTextElement,
+  type CarouselGlobalTheme,
   type EditorToolCategory,
+  type ProceduralConfig,
   type SaveStatus,
   type StoredProject,
   type StoryTemplate,
   type TemplateCategory,
   type UploadedPhoto,
+  type WorkspaceMode,
 } from '@/types/studio';
 import {
   downloadBlob,
   type ExportFormat,
   exportStageToBlob,
   generateThumbnailDataUrl,
+  renderSnapshotOffscreenToBlob,
+  runMultiFormatBatchExport,
 } from '@/utils/exportEngine';
 import {
   loadProjectPhotos,
@@ -51,6 +79,12 @@ const DEFAULT_CANVAS_BG = '#141418';
 
 function createElementId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function formatProceduralLayerName(config: ProceduralConfig): string {
+  const meta = PROCEDURAL_GENERATORS.find((g) => g.id === config.generatorType);
+  const label = meta?.label ?? 'Procedural';
+  return `${label} #${config.seed}`;
 }
 
 function buildTemplateDocument(
@@ -113,6 +147,36 @@ export interface StoryEditorContextValue {
   resetZoom: () => void;
   showSafeArea: boolean;
   toggleSafeArea: () => void;
+  isComparingOriginal: boolean;
+  setIsComparingOriginal: (comparing: boolean) => void;
+  canvasWidth: number;
+  canvasHeight: number;
+  canvasPreset: CanvasPresetId;
+  workspaceMode: WorkspaceMode;
+  changeCanvasFormat: (
+    presetId: CanvasPresetId,
+    customW?: number,
+    customH?: number,
+  ) => void;
+  isCarouselOverviewOpen: boolean;
+  setIsCarouselOverviewOpen: (open: boolean) => void;
+  selectCarouselSlide: (slideId: string) => void;
+  addCarouselSlide: () => void;
+  duplicateCarouselSlideById: (slideId: string) => void;
+  deleteCarouselSlideById: (slideId: string) => void;
+  renameCarouselSlide: (slideId: string, name: string) => void;
+  reorderCarouselSlide: (fromIdx: number, toIdx: number) => void;
+  applyCarouselTemplate: (templateId: CarouselTemplateId) => void;
+  updateCarouselTheme: (patch: Partial<CarouselGlobalTheme>) => void;
+  handleExportAllCarouselSlides: (
+    format: ExportFormat,
+    quality: number,
+  ) => Promise<void>;
+  handleBatchExport: (
+    presets: CanvasPresetId[],
+    format: ExportFormat,
+    quality: number,
+  ) => Promise<{ succeeded: number; failed: string[] }>;
   isPreviewOpen: boolean;
   setIsPreviewOpen: (open: boolean) => void;
   isExportOpen: boolean;
@@ -144,6 +208,15 @@ export interface StoryEditorContextValue {
   handleAddShape: (preset: Omit<CanvasShapeElement, 'id'>) => void;
   handleAddLine: (preset: Omit<CanvasLineElement, 'id'>) => void;
   handleAddDecorative: (preset: Omit<CanvasDecorativeElement, 'id'>) => void;
+  addProceduralLayer: (rawConfig?: Partial<ProceduralConfig>) => void;
+  applyProceduralBackground: (rawConfig: Partial<ProceduralConfig>) => void;
+  applyProceduralOverlay: (rawConfig: Partial<ProceduralConfig>) => void;
+  updateProceduralConfig: (
+    id: string,
+    partialConfig: Partial<ProceduralConfig>,
+    options?: { coalesce?: boolean },
+  ) => void;
+  extractPaletteFromActivePhoto: () => Promise<string[] | null>;
   handleApplyTemplate: (template: StoryTemplate) => void;
   handleApplySmartLayout: (
     config: AppliedSmartLayoutState,
@@ -178,6 +251,7 @@ interface StoryEditorProviderProps {
   projectId: string;
   initialProject?: StoredProject | null;
   initialTemplate?: StoryTemplate | null;
+  initialWorkspaceMode?: WorkspaceMode;
   onBackToDashboard: () => void;
   children: ReactNode;
 }
@@ -186,22 +260,32 @@ export function StoryEditorProvider({
   projectId,
   initialProject = null,
   initialTemplate = null,
+  initialWorkspaceMode = 'story',
   onBackToDashboard,
   children,
 }: StoryEditorProviderProps) {
   const stageRef = useRef<Konva.Stage | null>(null);
+  const wsDef = getWorkspaceDefinition(
+    initialProject?.document.workspaceMode ?? initialWorkspaceMode,
+  );
+  const defaultPresetDef = getCanvasPreset(wsDef.defaultPreset);
 
   const [projectTitle, setProjectTitle] = useState(
-    initialProject?.name ?? initialTemplate?.title ?? 'Untitled Story',
+    initialProject?.name ??
+      initialTemplate?.title ??
+      (wsDef.id === 'carousel' ? 'Untitled Carousel' : 'Untitled Story'),
   );
   const [templateCategory, setTemplateCategory] = useState<
     TemplateCategory | undefined
   >(initialProject?.templateCategory ?? initialTemplate?.category);
 
-  const [activeCategory, setActiveCategory] =
-    useState<EditorToolCategory>('uploads');
+  const [activeCategory, setActiveCategory] = useState<EditorToolCategory>(
+    wsDef.defaultTool,
+  );
   const [zoom, setZoom] = useState(100);
   const [showSafeArea, setShowSafeArea] = useState(true);
+  const [isComparingOriginal, setIsComparingOriginal] = useState(false);
+  const [isCarouselOverviewOpen, setIsCarouselOverviewOpen] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -224,12 +308,87 @@ export function StoryEditorProvider({
 
   const initialDoc = useMemo<CanvasDocumentState>(() => {
     if (initialProject) return initialProject.document;
-    if (initialTemplate) return buildTemplateDocument(initialTemplate, []);
-    return { backgroundColor: DEFAULT_CANVAS_BG, elements: [] };
-  }, [initialProject, initialTemplate]);
+    if (initialTemplate) {
+      return {
+        ...buildTemplateDocument(initialTemplate, []),
+        canvasWidth: CANVAS_WIDTH,
+        canvasHeight: CANVAS_HEIGHT,
+        canvasPreset: 'story-9-16',
+        workspaceMode: initialWorkspaceMode,
+      };
+    }
+    if (wsDef.id === 'carousel') {
+      const deck = createStarterCarouselDeck(
+        'minimal-editorial',
+        defaultPresetDef.width,
+        defaultPresetDef.height,
+      );
+      const first = deck.slides[0];
+      return {
+        backgroundColor: first.backgroundColor,
+        elements: first.elements,
+        canvasWidth: defaultPresetDef.width,
+        canvasHeight: defaultPresetDef.height,
+        canvasPreset: defaultPresetDef.id,
+        workspaceMode: 'carousel',
+        slides: deck.slides,
+        activeSlideId: first.id,
+        carouselTheme: deck.theme,
+      };
+    }
+    return {
+      backgroundColor: DEFAULT_CANVAS_BG,
+      elements: [],
+      canvasWidth: defaultPresetDef.width,
+      canvasHeight: defaultPresetDef.height,
+      canvasPreset: defaultPresetDef.id,
+      workspaceMode: wsDef.id,
+    };
+  }, [
+    initialProject,
+    initialTemplate,
+    initialWorkspaceMode,
+    wsDef.id,
+    defaultPresetDef.id,
+    defaultPresetDef.width,
+    defaultPresetDef.height,
+  ]);
 
-  const { state, commitState, resetHistory, undo, redo, canUndo, canRedo } =
+  const { state, commitState: rawCommitState, resetHistory, undo, redo, canUndo, canRedo } =
     useEditorHistory(initialDoc);
+
+  const canvasWidth = state.canvasWidth ?? CANVAS_WIDTH;
+  const canvasHeight = state.canvasHeight ?? CANVAS_HEIGHT;
+  const canvasPreset = state.canvasPreset ?? 'story-9-16';
+  const workspaceMode = state.workspaceMode ?? initialWorkspaceMode;
+
+  // Keep active Carousel slide synced automatically on every state commit
+  const commitState = useCallback(
+    (
+      updater: (prev: CanvasDocumentState) => CanvasDocumentState,
+      options?: { coalesce?: boolean },
+    ) => {
+      rawCommitState((prev) => {
+        const next = updater(prev);
+        if (next === prev) return prev;
+        if (next.slides && next.activeSlideId && next.slides === prev.slides) {
+          const syncedSlides = next.slides.map((s) =>
+            s.id === next.activeSlideId
+              ? {
+                  ...s,
+                  backgroundColor: next.backgroundColor,
+                  elements: next.elements,
+                  smartLayout: next.smartLayout,
+                }
+              : s,
+          );
+          return { ...next, slides: syncedSlides };
+        }
+        return next;
+      }, options);
+    },
+    [rawCommitState],
+  );
 
   const isHydratedRef = useRef(false);
 
@@ -524,6 +683,229 @@ export function StoryEditorProvider({
       };
       commitState((prev) => ({ ...prev, elements: [...prev.elements, el] }));
       setSelectedElementId(el.id);
+    },
+    [commitState],
+  );
+
+  const addProceduralLayer = useCallback(
+    (rawConfig?: Partial<ProceduralConfig>) => {
+      const config = sanitizeProceduralConfig(rawConfig);
+      const size = 640;
+      const el: CanvasProceduralElement = {
+        id: createElementId('proc'),
+        type: 'procedural',
+        name: formatProceduralLayerName(config),
+        x: Math.round((CANVAS_WIDTH - size) / 2),
+        y: Math.round((CANVAS_HEIGHT - size) / 2),
+        width: size,
+        height: size,
+        rotation: 0,
+        opacity: 1,
+        visible: true,
+        locked: false,
+        procedural: config,
+      };
+      commitState((prev) => ({ ...prev, elements: [...prev.elements, el] }));
+      setSelectedElementId(el.id);
+    },
+    [commitState],
+  );
+
+  const applyProceduralBackground = useCallback(
+    (rawConfig: Partial<ProceduralConfig>) => {
+      const config = sanitizeProceduralConfig(rawConfig);
+      const meta = PROCEDURAL_GENERATORS.find(
+        (g) => g.id === config.generatorType,
+      );
+      let targetId = '';
+
+      commitState((prev) => {
+        const first = prev.elements[0];
+        const isExistingFullBg =
+          first?.type === 'procedural' &&
+          first.x === 0 &&
+          first.y === 0 &&
+          first.width === CANVAS_WIDTH &&
+          first.height === CANVAS_HEIGHT &&
+          !first.locked;
+
+        const nextBgColor = meta?.hasTransparentNegativeSpace
+          ? config.palette[0]
+          : prev.backgroundColor;
+
+        if (isExistingFullBg) {
+          targetId = first.id;
+          const updatedFirst: CanvasProceduralElement = {
+            ...first,
+            name: `Latar · ${formatProceduralLayerName(config)}`,
+            visible: true,
+            procedural: config,
+          };
+          return {
+            ...prev,
+            backgroundColor: nextBgColor,
+            elements: [updatedFirst, ...prev.elements.slice(1)],
+          };
+        }
+
+        const bgElement: CanvasProceduralElement = {
+          id: createElementId('proc-bg'),
+          type: 'procedural',
+          name: `Latar · ${formatProceduralLayerName(config)}`,
+          x: 0,
+          y: 0,
+          width: CANVAS_WIDTH,
+          height: CANVAS_HEIGHT,
+          rotation: 0,
+          opacity: 1,
+          visible: true,
+          locked: false,
+          procedural: config,
+        };
+        targetId = bgElement.id;
+        return {
+          ...prev,
+          backgroundColor: nextBgColor,
+          elements: [bgElement, ...prev.elements],
+        };
+      });
+
+      if (targetId) {
+        setSelectedElementId(targetId);
+      }
+    },
+    [commitState],
+  );
+
+  const applyProceduralOverlay = useCallback(
+    (rawConfig: Partial<ProceduralConfig>) => {
+      const requestedBlend = rawConfig.blendMode;
+      const config = sanitizeProceduralConfig({
+        ...rawConfig,
+        blendMode:
+          requestedBlend && requestedBlend !== 'normal'
+            ? requestedBlend
+            : 'screen',
+      });
+      let targetId = '';
+
+      commitState((prev) => {
+        const lastIdx = prev.elements.length - 1;
+        const last = lastIdx >= 0 ? prev.elements[lastIdx] : undefined;
+        const isExistingTopOverlay =
+          last?.type === 'procedural' &&
+          last.x === 0 &&
+          last.y === 0 &&
+          last.width === CANVAS_WIDTH &&
+          last.height === CANVAS_HEIGHT &&
+          (last.id.startsWith('proc-ov-') || last.name.startsWith('Overlay ·')) &&
+          !last.locked;
+
+        if (isExistingTopOverlay) {
+          targetId = last.id;
+          const updatedLast: CanvasProceduralElement = {
+            ...last,
+            name: `Overlay · ${formatProceduralLayerName(config)}`,
+            width: canvasWidth,
+            height: canvasHeight,
+            opacity: 0.42,
+            visible: true,
+            procedural: config,
+          };
+          return {
+            ...prev,
+            elements: [...prev.elements.slice(0, lastIdx), updatedLast],
+          };
+        }
+
+        const overlayElement: CanvasProceduralElement = {
+          id: createElementId('proc-ov'),
+          type: 'procedural',
+          name: `Overlay · ${formatProceduralLayerName(config)}`,
+          x: 0,
+          y: 0,
+          width: canvasWidth,
+          height: canvasHeight,
+          rotation: 0,
+          opacity: 0.42,
+          visible: true,
+          locked: false,
+          procedural: config,
+        };
+        targetId = overlayElement.id;
+        return {
+          ...prev,
+          elements: [...prev.elements, overlayElement],
+        };
+      });
+
+      if (targetId) {
+        setSelectedElementId(targetId);
+      }
+    },
+    [commitState],
+  );
+
+  const extractPaletteFromActivePhoto = useCallback(async (): Promise<
+    string[] | null
+  > => {
+    const activePhotoEl =
+      selectedElement?.type === 'photo' && selectedElement.photoId
+        ? selectedElement
+        : state.elements.find(
+            (el): el is CanvasPhotoElement =>
+              el.type === 'photo' && Boolean(el.photoId),
+          );
+
+    const photo = activePhotoEl
+      ? photosById[activePhotoEl.photoId]
+      : uploadedPhotos[0];
+
+    if (!photo) return null;
+
+    return new Promise((resolve) => {
+      const img = new window.Image();
+      img.onload = () => {
+        resolve(extractHarmoniousPaletteFromImage(img));
+      };
+      img.onerror = () => resolve(null);
+      img.src = photo.objectUrl;
+    });
+  }, [photosById, selectedElement, state.elements, uploadedPhotos]);
+
+  const updateProceduralConfig = useCallback(
+    (
+      id: string,
+      partialConfig: Partial<ProceduralConfig>,
+      options?: { coalesce?: boolean },
+    ) => {
+      commitState((prev) => {
+        return {
+          ...prev,
+          elements: prev.elements.map((el) => {
+            if (el.id !== id || el.type !== 'procedural') return el;
+            const prevDefaultName = formatProceduralLayerName(el.procedural);
+            const prevBgDefaultName = `Latar · ${prevDefaultName}`;
+            const nextConfig = sanitizeProceduralConfig({
+              ...el.procedural,
+              ...partialConfig,
+            });
+            const nextDefaultName = formatProceduralLayerName(nextConfig);
+            const nextName =
+              el.name === prevDefaultName
+                ? nextDefaultName
+                : el.name === prevBgDefaultName
+                  ? `Latar · ${nextDefaultName}`
+                  : el.name;
+
+            return {
+              ...el,
+              name: nextName,
+              procedural: nextConfig,
+            };
+          }),
+        };
+      }, options);
     },
     [commitState],
   );
@@ -832,6 +1214,7 @@ export function StoryEditorProvider({
         const blob = await exportStageToBlob(stageRef.current, {
           format,
           quality,
+          canvasWidth,
         });
         const safeName =
           projectTitle
@@ -844,7 +1227,293 @@ export function StoryEditorProvider({
         setIsExporting(false);
       }
     },
-    [projectTitle],
+    [projectTitle, canvasWidth],
+  );
+
+  const changeCanvasFormat = useCallback(
+    (presetId: CanvasPresetId, customW?: number, customH?: number) => {
+      const preset = getCanvasPreset(presetId);
+      const { width: nextW, height: nextH } =
+        presetId === 'custom'
+          ? sanitizeCanvasDimensions(customW ?? canvasWidth, customH ?? canvasHeight)
+          : { width: preset.width, height: preset.height };
+
+      commitState((prev) => {
+        const oldW = prev.canvasWidth ?? CANVAS_WIDTH;
+        const oldH = prev.canvasHeight ?? CANVAS_HEIGHT;
+        const adaptedElements = adaptElementsToCanvasSize(
+          prev.elements,
+          oldW,
+          oldH,
+          nextW,
+          nextH,
+          prev.smartLayout?.layoutId,
+          prev.smartLayout,
+          photosById,
+        );
+        const adaptedSlides = prev.slides?.map((s) => ({
+          ...s,
+          elements: adaptElementsToCanvasSize(
+            s.elements,
+            oldW,
+            oldH,
+            nextW,
+            nextH,
+            s.smartLayout?.layoutId,
+            s.smartLayout,
+            photosById,
+          ),
+        }));
+        return {
+          ...prev,
+          canvasWidth: nextW,
+          canvasHeight: nextH,
+          canvasPreset: presetId,
+          elements: adaptedElements,
+          slides: adaptedSlides,
+        };
+      });
+    },
+    [canvasWidth, canvasHeight, commitState, photosById],
+  );
+
+  const selectCarouselSlide = useCallback(
+    (slideId: string) => {
+      rawCommitState((prev) => {
+        if (!prev.slides) return prev;
+        const target = prev.slides.find((s) => s.id === slideId);
+        if (!target) return prev;
+        return {
+          ...prev,
+          activeSlideId: target.id,
+          backgroundColor: target.backgroundColor,
+          elements: target.elements,
+          smartLayout: target.smartLayout,
+        };
+      });
+      setSelectedElementId(null);
+    },
+    [rawCommitState],
+  );
+
+  const addCarouselSlide = useCallback(() => {
+    rawCommitState((prev) => {
+      const theme = prev.carouselTheme ?? DEFAULT_CAROUSEL_THEME;
+      const existing = prev.slides ?? [];
+      const newSlide = createCarouselSlide(`Slide ${existing.length + 1}`, theme);
+      return {
+        ...prev,
+        slides: [...existing, newSlide],
+        activeSlideId: newSlide.id,
+        backgroundColor: newSlide.backgroundColor,
+        elements: newSlide.elements,
+        smartLayout: undefined,
+      };
+    });
+    setSelectedElementId(null);
+  }, [rawCommitState]);
+
+  const duplicateCarouselSlideById = useCallback(
+    (slideId: string) => {
+      rawCommitState((prev) => {
+        if (!prev.slides) return prev;
+        const { slides, duplicated } = duplicateCarouselSlide(prev.slides, slideId);
+        if (!duplicated) return prev;
+        return {
+          ...prev,
+          slides,
+          activeSlideId: duplicated.id,
+          backgroundColor: duplicated.backgroundColor,
+          elements: duplicated.elements,
+          smartLayout: duplicated.smartLayout,
+        };
+      });
+      setSelectedElementId(null);
+    },
+    [rawCommitState],
+  );
+
+  const deleteCarouselSlideById = useCallback(
+    (slideId: string) => {
+      rawCommitState((prev) => {
+        if (!prev.slides || prev.slides.length <= 1) return prev;
+        const { slides, nextActiveSlideId } = deleteCarouselSlide(
+          prev.slides,
+          slideId,
+          prev.activeSlideId ?? prev.slides[0].id,
+        );
+        const active = slides.find((s) => s.id === nextActiveSlideId) ?? slides[0];
+        return {
+          ...prev,
+          slides,
+          activeSlideId: active.id,
+          backgroundColor: active.backgroundColor,
+          elements: active.elements,
+          smartLayout: active.smartLayout,
+        };
+      });
+      setSelectedElementId(null);
+    },
+    [rawCommitState],
+  );
+
+  const renameCarouselSlide = useCallback(
+    (slideId: string, name: string) => {
+      rawCommitState((prev) => {
+        if (!prev.slides) return prev;
+        return {
+          ...prev,
+          slides: prev.slides.map((s) => (s.id === slideId ? { ...s, name } : s)),
+        };
+      });
+    },
+    [rawCommitState],
+  );
+
+  const reorderCarouselSlide = useCallback(
+    (fromIdx: number, toIdx: number) => {
+      rawCommitState((prev) => {
+        if (!prev.slides) return prev;
+        return {
+          ...prev,
+          slides: reorderCarouselSlides(prev.slides, fromIdx, toIdx),
+        };
+      });
+    },
+    [rawCommitState],
+  );
+
+  const applyCarouselTemplate = useCallback(
+    (templateId: CarouselTemplateId) => {
+      rawCommitState((prev) => {
+        const deck = createStarterCarouselDeck(
+          templateId,
+          prev.canvasWidth ?? canvasWidth,
+          prev.canvasHeight ?? canvasHeight,
+        );
+        const first = deck.slides[0];
+        return {
+          ...prev,
+          carouselTheme: deck.theme,
+          slides: deck.slides,
+          activeSlideId: first.id,
+          backgroundColor: first.backgroundColor,
+          elements: first.elements,
+          smartLayout: undefined,
+        };
+      });
+      setSelectedElementId(null);
+    },
+    [rawCommitState, canvasWidth, canvasHeight],
+  );
+
+  const updateCarouselTheme = useCallback(
+    (patch: Partial<CarouselGlobalTheme>) => {
+      rawCommitState((prev) => {
+        const nextTheme: CarouselGlobalTheme = {
+          ...(prev.carouselTheme ?? DEFAULT_CAROUSEL_THEME),
+          ...patch,
+        };
+        const updatedSlides = prev.slides
+          ? applyGlobalThemeToSlides(prev.slides, nextTheme)
+          : undefined;
+        const active = updatedSlides?.find((s) => s.id === prev.activeSlideId);
+        return {
+          ...prev,
+          carouselTheme: nextTheme,
+          slides: updatedSlides,
+          backgroundColor: active?.backgroundColor ?? nextTheme.backgroundColor,
+          elements: active?.elements ?? prev.elements,
+        };
+      });
+    },
+    [rawCommitState],
+  );
+
+  const handleExportAllCarouselSlides = useCallback(
+    async (format: ExportFormat, quality: number) => {
+      const slides = state.slides ?? [];
+      if (slides.length === 0) return;
+      setIsExporting(true);
+      try {
+        const safeBase =
+          projectTitle
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9-_]+/g, '-') || 'frame-carousel';
+        const ext = format === 'jpeg' ? 'jpg' : 'png';
+        for (let i = 0; i < slides.length; i++) {
+          const slide = slides[i];
+          const blob = await renderSnapshotOffscreenToBlob(
+            slide.elements,
+            slide.backgroundColor,
+            canvasWidth,
+            canvasHeight,
+            photosById,
+            format,
+            quality,
+          );
+          const num = String(i + 1).padStart(2, '0');
+          downloadBlob(blob, `${safeBase}-slide-${num}.${ext}`);
+          await new Promise((r) => window.setTimeout(r, 200));
+        }
+        setIsExportOpen(false);
+      } finally {
+        setIsExporting(false);
+      }
+    },
+    [state.slides, projectTitle, canvasWidth, canvasHeight, photosById],
+  );
+
+  const handleBatchExport = useCallback(
+    async (
+      presets: CanvasPresetId[],
+      format: ExportFormat,
+      quality: number,
+    ): Promise<{ succeeded: number; failed: string[] }> => {
+      setIsExporting(true);
+      try {
+        if (state.slides && state.slides.length > 0) {
+          let totalSucceeded = 0;
+          const allFailed: string[] = [];
+          for (let i = 0; i < state.slides.length; i++) {
+            const slide = state.slides[i];
+            const res = await runMultiFormatBatchExport({
+              projectName: projectTitle,
+              elements: slide.elements,
+              backgroundColor: slide.backgroundColor,
+              sourceWidth: canvasWidth,
+              sourceHeight: canvasHeight,
+              activeLayoutId: slide.smartLayout?.layoutId,
+              photosById,
+              presets,
+              format,
+              quality,
+              slideSuffix: `slide-${String(i + 1).padStart(2, '0')}`,
+            });
+            totalSucceeded += res.succeeded;
+            allFailed.push(...res.failed);
+          }
+          return { succeeded: totalSucceeded, failed: allFailed };
+        }
+
+        return await runMultiFormatBatchExport({
+          projectName: projectTitle,
+          elements: state.elements,
+          backgroundColor: state.backgroundColor,
+          sourceWidth: canvasWidth,
+          sourceHeight: canvasHeight,
+          activeLayoutId: state.smartLayout?.layoutId,
+          photosById,
+          presets,
+          format,
+          quality,
+        });
+      } finally {
+        setIsExporting(false);
+      }
+    },
+    [state, projectTitle, canvasWidth, canvasHeight, photosById],
   );
 
   const handleBackToDashboard = useCallback(() => {
@@ -908,6 +1577,25 @@ export function StoryEditorProvider({
     resetZoom: () => setZoom(100),
     showSafeArea,
     toggleSafeArea: () => setShowSafeArea((prev) => !prev),
+    isComparingOriginal,
+    setIsComparingOriginal,
+    canvasWidth,
+    canvasHeight,
+    canvasPreset,
+    workspaceMode,
+    changeCanvasFormat,
+    isCarouselOverviewOpen,
+    setIsCarouselOverviewOpen,
+    selectCarouselSlide,
+    addCarouselSlide,
+    duplicateCarouselSlideById,
+    deleteCarouselSlideById,
+    renameCarouselSlide,
+    reorderCarouselSlide,
+    applyCarouselTemplate,
+    updateCarouselTheme,
+    handleExportAllCarouselSlides,
+    handleBatchExport,
     isPreviewOpen,
     setIsPreviewOpen,
     isExportOpen,
@@ -939,6 +1627,11 @@ export function StoryEditorProvider({
     handleAddShape,
     handleAddLine,
     handleAddDecorative,
+    addProceduralLayer,
+    applyProceduralBackground,
+    applyProceduralOverlay,
+    updateProceduralConfig,
+    extractPaletteFromActivePhoto,
     handleApplyTemplate,
     handleApplySmartLayout,
     handleUpdateSmartLayoutParams,

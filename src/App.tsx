@@ -5,6 +5,7 @@ import { STORY_TEMPLATES, TEMPLATE_CATEGORIES } from '@/constants/templates';
 import { ExploreTemplatesSection } from '@/features/dashboard/ExploreTemplatesSection';
 import { HeroSection } from '@/features/dashboard/HeroSection';
 import { RecentProjectsSection } from '@/features/dashboard/RecentProjectsSection';
+import { WorkspaceLaunchersSection } from '@/features/dashboard/WorkspaceLaunchersSection';
 
 const StoryCreatorPage = lazy(() =>
   import('@/features/story-creator/StoryCreatorPage').then((m) => ({
@@ -16,6 +17,7 @@ import type {
   NavItemId,
   StoredProject,
   StoryTemplate,
+  WorkspaceMode,
 } from '@/types/studio';
 import {
   createNewProjectId,
@@ -40,6 +42,8 @@ export function App() {
   const [editingTemplate, setEditingTemplate] = useState<StoryTemplate | null>(
     null,
   );
+  const [activeWorkspaceMode, setActiveWorkspaceMode] =
+    useState<WorkspaceMode>('story');
 
   const refreshProjects = useCallback(async () => {
     const saved = await listProjects();
@@ -65,11 +69,12 @@ export function App() {
     })();
   }, [refreshProjects]);
 
-  const handleCreateStory = () => {
+  const handleCreateStory = (mode: WorkspaceMode = 'story') => {
     const newId = createNewProjectId();
     setActiveProjectId(newId);
     setEditingProject(null);
     setEditingTemplate(null);
+    setActiveWorkspaceMode(mode);
     sessionStorage.setItem(ACTIVE_PROJECT_KEY, newId);
     setCurrentView('editor');
   };
@@ -128,6 +133,7 @@ export function App() {
           projectId={activeProjectId}
           initialProject={editingProject}
           initialTemplate={editingTemplate}
+          initialWorkspaceMode={activeWorkspaceMode}
           onBackToDashboard={handleBackToDashboard}
         />
       </Suspense>
@@ -153,8 +159,11 @@ export function App() {
           {activeNav === 'dashboard' && (
             <>
               <HeroSection
-                onCreateStory={handleCreateStory}
+                onCreateStory={() => handleCreateStory('story')}
                 onExploreTemplates={handleExploreTemplates}
+              />
+              <WorkspaceLaunchersSection
+                onLaunchWorkspace={(mode) => handleCreateStory(mode)}
               />
               <RecentProjectsSection
                 projects={projects}

@@ -13,8 +13,10 @@ import {
   Unlock,
   X,
 } from 'lucide-react';
+import { AnimationPropertiesPanel } from '@/features/story-creator/components/properties/AnimationPropertiesPanel';
 import { CanvasPropertiesPanel } from '@/features/story-creator/components/properties/CanvasPropertiesPanel';
 import { PhotoPropertiesPanel } from '@/features/story-creator/components/properties/PhotoPropertiesPanel';
+import { ProceduralPropertiesPanel } from '@/features/story-creator/components/properties/ProceduralPropertiesPanel';
 import { ShapePropertiesPanel } from '@/features/story-creator/components/properties/ShapePropertiesPanel';
 import { TextPropertiesPanel } from '@/features/story-creator/components/properties/TextPropertiesPanel';
 import { useStoryEditor } from '@/features/story-creator/context/StoryEditorContext';
@@ -24,11 +26,16 @@ export function PropertiesPanel() {
   const {
     showSafeArea,
     toggleSafeArea,
+    canvasWidth,
+    canvasHeight,
+    canvasPreset,
+    changeCanvasFormat,
     state,
     handleChangeBackground,
     selectedElement: sel,
     uploadedPhotos,
     handleUpdateElement,
+    updateProceduralConfig,
     openCropForElement,
     handleDeleteElement,
     handleDuplicateElement,
@@ -286,6 +293,20 @@ export function PropertiesPanel() {
                   />
                 )}
 
+                {sel.type === 'procedural' && (
+                  <ProceduralPropertiesPanel
+                    element={sel}
+                    onUpdateConfig={(patch, opts) =>
+                      updateProceduralConfig(sel.id, patch, opts)
+                    }
+                  />
+                )}
+
+                <AnimationPropertiesPanel
+                  element={sel}
+                  onUpdate={updateSelected}
+                />
+
                 {/* Visibility, Lock, and Layer Order */}
                 <div className="space-y-1.5 pt-1">
                   <div className="flex gap-1.5">
@@ -355,6 +376,10 @@ export function PropertiesPanel() {
           )}
 
           <CanvasPropertiesPanel
+            canvasWidth={canvasWidth}
+            canvasHeight={canvasHeight}
+            canvasPreset={canvasPreset}
+            onChangeFormat={changeCanvasFormat}
             backgroundColor={state.backgroundColor}
             onChangeBackground={handleChangeBackground}
             showSafeArea={showSafeArea}

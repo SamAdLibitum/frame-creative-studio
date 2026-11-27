@@ -1,11 +1,49 @@
+import type {
+  ProceduralConfig,
+  ProceduralGeneratorType,
+} from '@/engines/procedural/types';
+
+export type { ProceduralConfig, ProceduralGeneratorType };
+
 export type AppView = 'dashboard' | 'editor';
 
 export type NavItemId = 'dashboard' | 'projects' | 'templates' | 'settings';
+
+export type CanvasPresetId =
+  | 'story-9-16'
+  | 'square-1-1'
+  | 'portrait-4-5'
+  | 'landscape-16-9'
+  | 'poster-a4'
+  | 'custom';
+
+export type WorkspaceMode =
+  | 'story'
+  | 'photo'
+  | 'poster'
+  | 'collage'
+  | 'moodboard'
+  | 'carousel';
+
+export type ElementAnimationPreset =
+  | 'none'
+  | 'fade-in'
+  | 'slide-up'
+  | 'float'
+  | 'slow-zoom'
+  | 'pulse';
+
+export interface ElementAnimationConfig {
+  preset: ElementAnimationPreset;
+  duration: number; // 0.3 – 3.0s
+  delay: number; // 0 – 2.0s
+}
 
 export type EditorToolCategory =
   | 'uploads'
   | 'layout'
   | 'templates'
+  | 'procedural'
   | 'text'
   | 'elements'
   | 'photos'
@@ -88,6 +126,7 @@ export interface BaseCanvasElement {
   opacity: number;
   visible: boolean;
   locked: boolean;
+  animation?: ElementAnimationConfig;
 }
 
 export interface CanvasPhotoElement extends BaseCanvasElement {
@@ -173,12 +212,20 @@ export interface CanvasDecorativeElement extends BaseCanvasElement {
   strokeWidth: number;
 }
 
+export interface CanvasProceduralElement extends BaseCanvasElement {
+  type: 'procedural';
+  width: number;
+  height: number;
+  procedural: ProceduralConfig;
+}
+
 export type CanvasElement =
   | CanvasPhotoElement
   | CanvasTextElement
   | CanvasShapeElement
   | CanvasLineElement
-  | CanvasDecorativeElement;
+  | CanvasDecorativeElement
+  | CanvasProceduralElement;
 
 export type TemplateElementBlueprint = CanvasElement extends infer T
   ? T extends CanvasElement
@@ -218,10 +265,40 @@ export interface AppliedSmartLayoutState {
   cornerRadius: number;
 }
 
+export interface CarouselGlobalTheme {
+  primaryColor: string;
+  secondaryColor: string;
+  backgroundColor: string;
+  textColor: string;
+  accentColor: string;
+  headingFont: string;
+  bodyFont: string;
+  showSlideNumbers: boolean;
+  slideNumberFormat: '01/05' | '1/5' | '01';
+  slideNumberPosition: 'top-right' | 'bottom-right' | 'bottom-center';
+  hideNumberOnCover: boolean;
+}
+
+export interface CarouselSlide {
+  id: string;
+  name: string;
+  backgroundColor: string;
+  elements: CanvasElement[];
+  smartLayout?: AppliedSmartLayoutState;
+  overrideTheme?: boolean;
+}
+
 export interface CanvasDocumentState {
   backgroundColor: string;
   elements: CanvasElement[];
   smartLayout?: AppliedSmartLayoutState;
+  canvasWidth?: number;
+  canvasHeight?: number;
+  canvasPreset?: CanvasPresetId;
+  workspaceMode?: WorkspaceMode;
+  slides?: CarouselSlide[];
+  activeSlideId?: string;
+  carouselTheme?: CarouselGlobalTheme;
 }
 
 export type SaveStatus = 'saved' | 'saving' | 'unsaved';

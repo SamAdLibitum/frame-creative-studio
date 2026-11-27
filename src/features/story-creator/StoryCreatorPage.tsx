@@ -1,4 +1,5 @@
 import { AlertTriangle } from 'lucide-react';
+import { CarouselSlideBar } from '@/features/story-creator/components/CarouselSlideBar';
 import { CropOverlayModal } from '@/features/story-creator/components/CropOverlayModal';
 import { EditorBottomBar } from '@/features/story-creator/components/EditorBottomBar';
 import { EditorHeader } from '@/features/story-creator/components/EditorHeader';
@@ -11,12 +12,17 @@ import {
   StoryEditorProvider,
   useStoryEditor,
 } from '@/features/story-creator/context/StoryEditorContext';
-import type { StoredProject, StoryTemplate } from '@/types/studio';
+import type {
+  StoredProject,
+  StoryTemplate,
+  WorkspaceMode,
+} from '@/types/studio';
 
 interface StoryCreatorPageProps {
   projectId: string;
   initialProject?: StoredProject | null;
   initialTemplate?: StoryTemplate | null;
+  initialWorkspaceMode?: WorkspaceMode;
   onBackToDashboard: () => void;
 }
 
@@ -32,6 +38,11 @@ function StoryCreatorWorkspace() {
     zoomOut,
     resetZoom,
     showSafeArea,
+    isComparingOriginal,
+    setIsComparingOriginal,
+    canvasWidth,
+    canvasHeight,
+    workspaceMode,
     isPreviewOpen,
     setIsPreviewOpen,
     isExportOpen,
@@ -53,12 +64,16 @@ function StoryCreatorWorkspace() {
     handleBackToDashboard,
     handleUpdateElement,
     handleExport,
+    handleExportAllCarouselSlides,
+    handleBatchExport,
   } = useStoryEditor();
 
   if (isPreviewOpen) {
     return (
       <PreviewMode
         projectTitle={projectTitle}
+        canvasWidth={canvasWidth}
+        canvasHeight={canvasHeight}
         backgroundColor={state.backgroundColor}
         elements={state.elements}
         photosById={photosById}
@@ -94,25 +109,35 @@ function StoryCreatorWorkspace() {
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <EditorToolbar />
 
-        <StoryCanvas
-          stageRef={stageRef}
-          zoom={zoom}
-          showSafeArea={showSafeArea}
-          backgroundColor={state.backgroundColor}
-          elements={state.elements}
-          photosById={photosById}
-          selectedElementId={selectedElementId}
-          onSelectElement={setSelectedElementId}
-          onUpdateElement={handleUpdateElement}
-          onOpenCrop={openCropForElement}
-        />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <StoryCanvas
+            stageRef={stageRef}
+            zoom={zoom}
+            canvasWidth={canvasWidth}
+            canvasHeight={canvasHeight}
+            showSafeArea={showSafeArea}
+            isComparingOriginal={isComparingOriginal}
+            backgroundColor={state.backgroundColor}
+            elements={state.elements}
+            photosById={photosById}
+            selectedElementId={selectedElementId}
+            onSelectElement={setSelectedElementId}
+            onUpdateElement={handleUpdateElement}
+            onOpenCrop={openCropForElement}
+          />
+          {workspaceMode === 'carousel' && <CarouselSlideBar />}
+        </div>
 
         <PropertiesPanel />
       </div>
 
       <EditorBottomBar
         zoom={zoom}
+        canvasWidth={canvasWidth}
+        canvasHeight={canvasHeight}
         elementCount={state.elements.length}
+        isComparingOriginal={isComparingOriginal}
+        onSetComparingOriginal={setIsComparingOriginal}
         onZoomIn={zoomIn}
         onZoomOut={zoomOut}
         onResetZoom={resetZoom}
@@ -120,8 +145,15 @@ function StoryCreatorWorkspace() {
 
       <ExportDialog
         isOpen={isExportOpen}
+        canvasWidth={canvasWidth}
+        canvasHeight={canvasHeight}
+        slideCount={state.slides?.length ?? 0}
         onClose={() => setIsExportOpen(false)}
         onExport={(format, quality) => void handleExport(format, quality)}
+        onExportAllSlides={(format, quality) =>
+          void handleExportAllCarouselSlides(format, quality)
+        }
+        onBatchExport={handleBatchExport}
         isExporting={isExporting}
       />
 
@@ -146,6 +178,7 @@ export function StoryCreatorPage(props: StoryCreatorPageProps) {
       projectId={props.projectId}
       initialProject={props.initialProject}
       initialTemplate={props.initialTemplate}
+      initialWorkspaceMode={props.initialWorkspaceMode}
       onBackToDashboard={props.onBackToDashboard}
     >
       <StoryCreatorWorkspace />

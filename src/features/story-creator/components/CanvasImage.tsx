@@ -19,6 +19,7 @@ interface CanvasImageProps {
   objectUrl?: string;
   isSelected: boolean;
   isPreview?: boolean;
+  bypassFilters?: boolean;
   onSelect: () => void;
   onDblClick?: () => void;
   onChange: (updated: Partial<CanvasPhotoElement>) => void;
@@ -29,6 +30,7 @@ export function CanvasImage({
   element,
   objectUrl,
   isPreview = false,
+  bypassFilters = false,
   onSelect,
   onDblClick,
   onChange,
@@ -71,7 +73,7 @@ export function CanvasImage({
 
   const renderSource = useMemo<CanvasImageSource | null>(() => {
     if (!imageObj) return null;
-    if (isIdentityAdjustments(effectiveAdj)) {
+    if (bypassFilters || isIdentityAdjustments(effectiveAdj)) {
       return imageObj;
     }
     if (!offscreenCanvasRef.current) {
@@ -82,7 +84,7 @@ export function CanvasImage({
       effectiveAdj,
       offscreenCanvasRef.current,
     );
-  }, [imageObj, effectiveAdj]);
+  }, [imageObj, effectiveAdj, bypassFilters]);
 
   if (!element.visible) return null;
 

@@ -8,18 +8,38 @@ import {
   Shapes,
   Type,
   Upload,
+  WandSparkles,
   X,
 } from 'lucide-react';
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { BackgroundControls } from '@/features/story-creator/components/BackgroundControls';
 import { ElementsPanel } from '@/features/story-creator/components/ElementsPanel';
 import { LayersPanel } from '@/features/story-creator/components/LayersPanel';
 import { PhotoUploadPanel } from '@/features/story-creator/components/PhotoUploadPanel';
-import { SmartLayoutPanel } from '@/features/story-creator/components/SmartLayoutPanel';
 import { TemplatesPanel } from '@/features/story-creator/components/TemplatesPanel';
 import { TextPanel } from '@/features/story-creator/components/TextPanel';
 import { useStoryEditor } from '@/features/story-creator/context/StoryEditorContext';
 import type { EditorToolCategory } from '@/types/studio';
+
+const ProceduralPanel = lazy(() =>
+  import('@/features/story-creator/components/ProceduralPanel').then((m) => ({
+    default: m.ProceduralPanel,
+  })),
+);
+
+const SmartLayoutPanel = lazy(() =>
+  import('@/features/story-creator/components/SmartLayoutPanel').then((m) => ({
+    default: m.SmartLayoutPanel,
+  })),
+);
+
+function PanelLoadingFallback() {
+  return (
+    <div className="flex flex-1 items-center justify-center text-xs text-neutral-500">
+      Memuat panel...
+    </div>
+  );
+}
 
 const TOOL_CATEGORIES: Array<{
   id: EditorToolCategory;
@@ -29,6 +49,7 @@ const TOOL_CATEGORIES: Array<{
   { id: 'uploads', label: 'Uploads', icon: Upload },
   { id: 'layout', label: 'Layout', icon: LayoutGrid },
   { id: 'templates', label: 'Templates', icon: LayoutTemplate },
+  { id: 'procedural', label: 'Procedural', icon: WandSparkles },
   { id: 'text', label: 'Text', icon: Type },
   { id: 'elements', label: 'Elements', icon: Shapes },
   { id: 'photos', label: 'Photos', icon: Image },
@@ -90,18 +111,20 @@ export function EditorToolbar() {
         );
       case 'layout':
         return (
-          <SmartLayoutPanel
-            photos={photos}
-            appliedLayout={state.smartLayout}
-            backgroundColor={state.backgroundColor}
-            hasManualPhotoContent={hasManualPhotoContent}
-            onApplyLayout={handleApplySmartLayout}
-            onUpdateLayoutParams={handleUpdateSmartLayoutParams}
-            onResetLayoutDefaults={handleResetSmartLayoutDefaults}
-            onChangeBackground={handleChangeBackground}
-            onEditSlotCrop={openCropForSlot}
-            onGoToUploads={() => setActiveCategory('uploads')}
-          />
+          <Suspense fallback={<PanelLoadingFallback />}>
+            <SmartLayoutPanel
+              photos={photos}
+              appliedLayout={state.smartLayout}
+              backgroundColor={state.backgroundColor}
+              hasManualPhotoContent={hasManualPhotoContent}
+              onApplyLayout={handleApplySmartLayout}
+              onUpdateLayoutParams={handleUpdateSmartLayoutParams}
+              onResetLayoutDefaults={handleResetSmartLayoutDefaults}
+              onChangeBackground={handleChangeBackground}
+              onEditSlotCrop={openCropForSlot}
+              onGoToUploads={() => setActiveCategory('uploads')}
+            />
+          </Suspense>
         );
       case 'templates':
         return (
@@ -109,6 +132,12 @@ export function EditorToolbar() {
             hasExistingContent={state.elements.length > 0}
             onApplyTemplate={handleApplyTemplate}
           />
+        );
+      case 'procedural':
+        return (
+          <Suspense fallback={<PanelLoadingFallback />}>
+            <ProceduralPanel />
+          </Suspense>
         );
       case 'text':
         return <TextPanel onAddText={handleAddText} />;

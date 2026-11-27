@@ -1,11 +1,17 @@
 import { Crop, Frame } from 'lucide-react';
-import { PhotoFiltersPanel } from '@/features/story-creator/components/PhotoFiltersPanel';
+import { lazy, Suspense } from 'react';
 import type {
   CanvasElement,
   CanvasPhotoElement,
   FrameMaskKind,
   UploadedPhoto,
 } from '@/types/studio';
+
+const PhotoFiltersPanel = lazy(() =>
+  import('@/features/story-creator/components/PhotoFiltersPanel').then((m) => ({
+    default: m.PhotoFiltersPanel,
+  })),
+);
 
 const FRAME_MASK_OPTIONS: Array<{ value: FrameMaskKind; label: string }> = [
   { value: 'none', label: 'Tanpa Mask (Bebas)' },
@@ -228,12 +234,18 @@ export function PhotoPropertiesPanel({
 
       {element.photoId && (
         <div className="border-t border-white/8 pt-3">
-          <PhotoFiltersPanel
-            element={element}
-            onUpdate={(u, opts) =>
-              onUpdate(u as Partial<CanvasElement>, opts)
+          <Suspense
+            fallback={
+              <p className="text-[11px] text-neutral-500">Memuat filter...</p>
             }
-          />
+          >
+            <PhotoFiltersPanel
+              element={element}
+              onUpdate={(u, opts) =>
+                onUpdate(u as Partial<CanvasElement>, opts)
+              }
+            />
+          </Suspense>
         </div>
       )}
     </>

@@ -636,25 +636,35 @@ export function generateSmartLayoutElements(
   config: AppliedSmartLayoutState,
   photosById: Record<string, UploadedPhoto>,
   existingSlotElements?: CanvasPhotoElement[],
+  canvasWidth = CANVAS_WIDTH,
+  canvasHeight = CANVAS_HEIGHT,
 ): CanvasPhotoElement[] {
   const layout =
     SMART_LAYOUTS.find((l) => l.id === config.layoutId) ?? SMART_LAYOUTS[0];
+
+  const safeW = Math.max(320, Math.round(Number.isFinite(canvasWidth) ? canvasWidth : CANVAS_WIDTH));
+  const safeH = Math.max(320, Math.round(Number.isFinite(canvasHeight) ? canvasHeight : CANVAS_HEIGHT));
 
   const margin = Math.max(0, Math.min(160, config.margin));
   const spacing = Math.max(0, Math.min(80, config.spacing));
   const cornerRadius = Math.max(0, Math.min(100, config.cornerRadius));
 
+  const isPortraitStory = safeH / safeW > 1.5;
   const topInset = layout.fullBleed
     ? margin
-    : Math.max(margin, Math.round(CANVAS_HEIGHT * SAFE_TOP_RATIO));
+    : isPortraitStory
+      ? Math.max(margin, Math.round(safeH * SAFE_TOP_RATIO))
+      : margin;
   const bottomInset = layout.fullBleed
     ? margin
-    : Math.max(margin, Math.round(CANVAS_HEIGHT * SAFE_BOTTOM_RATIO));
+    : isPortraitStory
+      ? Math.max(margin, Math.round(safeH * SAFE_BOTTOM_RATIO))
+      : margin;
 
   const boxX = margin;
   const boxY = topInset;
-  const boxW = Math.max(200, CANVAS_WIDTH - margin * 2);
-  const boxH = Math.max(300, CANVAS_HEIGHT - topInset - bottomInset);
+  const boxW = Math.max(200, safeW - margin * 2);
+  const boxH = Math.max(200, safeH - topInset - bottomInset);
 
   const gx = spacing / boxW;
   const gy = spacing / boxH;
